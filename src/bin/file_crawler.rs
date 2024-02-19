@@ -1,13 +1,18 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::collections::{HashMap, VecDeque};
+use std::path::Path;
+use std::sync::{Arc, mpsc, Mutex, MutexGuard};
+use std::sync::mpsc::{Receiver, Sender};
+
+use threadpool::ThreadPool;
+
 const READABLE_FILE_FORMAT: [&'static str; 18] = [
     "txt", "css", "js", "html", "c", "cpp", "h", "hpp", "rs", "java", "toml", "json", "csv", "sh",
     "yaml", "md", "xml", "xslt",
 ];
 pub struct FileCrawler {
-    file_cache: HashMap<char, HashMap<&'static str, Arc<Mutex<Vec<&'static str>>>>>,
-    folders_cache: HashMap<char, HashMap<&'static str, Arc<Mutex<Vec<&'static str>>>>>,
-    searchable_files_cache: HashMap<char, HashMap<&'static str, Arc<Mutex<Vec<&'static str>>>>>,
+    file_cache:  HashMap<&'static str, Arc<Mutex<Vec<&'static str>>>>,
+    folders_cache: HashMap<&'static str, Arc<Mutex<Vec<&'static str>>>>,
+    searchable_files_cache: HashMap<&'static str, Arc<Mutex<Vec<&'static str>>>>,
     sep: &'static str,
     roots: Vec<&'static str>
 }
@@ -15,34 +20,85 @@ pub struct FileCrawler {
 impl FileCrawler {
     pub fn new() -> FileCrawler {
         FileCrawler {
-            file_cache: init_cache(),
-            folders_cache: init_cache(),
-            searchable_files_cache: init_cache(),
+            file_cache: HashMap::new(),
+            folders_cache: HashMap::new(),
+            searchable_files_cache: HashMap::new(),
             sep: get_sep(),
             roots: Self::get_roots()
         }
     }
     pub fn start_indexing(&mut self){
+        let mut to_explore_queue:VecDeque<&str> = self.roots.clone().iter().map(|s|*s).collect::<VecDeque<&str>>();
+        println!("{:?}",self.roots);
+        println!("{:?}",to_explore_queue);
+        let threadpool:ThreadPool = ThreadPool::new(10);
+        let (tx, rx): (Sender<Vec<&str>>, Receiver<Vec<&str>>) = mpsc::channel();
+        loop {
+            for to_explore in to_explore_queue.clone(){
+                let thr_sender = tx.clone();
+                threadpool.execute(move || {
+                    let res = Self::explore_dir(to_explore);
+                    thr_sender.send(res).expect("Should work");
+                })
+            }
+            threadpool.join();
+            for paths in rx.recv(){
+                to_explore_queue.clear();
+                for path in paths{
+                    to_explore_queue.push_back(path);
+                }
+            }
+            if to_explore_queue.len() == 0{
+                break
+            }
+        }
 
     }
+    fn explore_dir(dir_to_explore:&str) -> Vec<&str>{
+        let path = Path::new(dir_to_explore);
+        if !path.exists() {
+            println!("path {} does not exist",dir_to_explore);
+            return vec![];
+        };
+        if !path.is_dir(){
+            println!("path {} is not a directory",dir_to_explore);
+            return vec![];
+        }
 
+        vec![]
+    }
     fn get_roots() -> Vec<&'static str> {
-        vec!["/"]
+        vec![r#"C:\"#]
     }
     fn edit_cache(
-        cache: &mut HashMap<char, HashMap<&'static str, Arc<Mutex<Vec<&'static str>>>>>,
-        key: char,
+        cache: &mut HashMap<&'static str, Arc<Mutex<Vec<&'static str>>>>,
         file_name: &'static str,
         path: &'static str,
     ) {
-        cache.entry(key).and_modify(|map| {
-            let paths: &mut Arc<Mutex<Vec<&'static str>>> =
-                map.entry(file_name).or_insert(Arc::new(Mutex::new(vec![])));
-            paths.lock().unwrap().push(path);
-        });
+        let paths: &mut Arc<Mutex<Vec<&'static str>>> =
+            cache.entry(file_name).or_insert(Arc::new(Mutex::new(vec![])));
+        paths.lock().unwrap().push(path);
     }
-    pub fn find<'a>(&self, file_name:&str,root_folders:Option<Vec<&'a str>>,full_search:bool){
-
+    pub fn find<'a>(&self, file_name:&str,root_folders:Option<Vec<&'a str>>,full_search:bool) -> Vec<&str>{
+        let root_folders = match root_folders {
+            None => self.roots.clone(),
+            Some(r) => r
+        };
+        let filter = self.file_cache.iter().filter(|entry| entry.0.contains(file_name));
+        let vecs = filter.map(|entry| entry.1.lock().unwrap()).collect::<Vec<MutexGuard<Vec<&str>>>>();
+        let mut elements:Vec<&str> = vec![];
+        vecs.iter().for_each(|vec|{
+            vec.iter().for_each(|el|{
+                for root in root_folders.clone(){
+                    if el.starts_with(root){
+                        continue;
+                    }
+                    elements.push(el);
+                    break;
+                }
+            })
+        });
+        elements
     }
     pub fn add_to_file_cache(&mut self, path: &'static str) {
         Self::add_to_cache(&mut self.file_cache, path,self.sep);
@@ -59,22 +115,12 @@ impl FileCrawler {
     pub fn add_to_folders_cache(&mut self, path: &'static str) {
         Self::add_to_cache(&mut self.folders_cache, path,self.sep);
     }
-    fn add_to_cache(cache: &mut HashMap<char, HashMap<&'static str, Arc<Mutex<Vec<&'static str>>>>>,
+    fn add_to_cache(cache: &mut HashMap<&'static str, Arc<Mutex<Vec<&'static str>>>>,
         path: &'static str,
         sep:&'static str
     ) {
         match path.split(sep).last() {
-            Some(last) => {
-                match last.chars().next() {
-                    Some(first) => {
-                        Self::edit_cache(cache, first, last, path);
-                    }
-                    None => {
-                        println!("Exit");
-                        return;
-                    }
-                }
-            }
+            Some(last) => Self::edit_cache(cache, last, path),
             None => {
                 println!("Exit");
                 return;
@@ -83,51 +129,6 @@ impl FileCrawler {
     }
 }
 fn get_sep() -> &'static str {
-    return if cfg!(windows) { "\\" } else { "/" };
-}
-
-//Vomit inducing shit
-fn init_cache() -> HashMap<char, HashMap<&'static str, Arc<Mutex<Vec<&'static str>>>>> {
-    let mut map: HashMap<char, HashMap<&'static str, Arc<Mutex<Vec<&'static str>>>>> =
-        HashMap::new();
-    map.insert('A', HashMap::new());
-    map.insert('B', HashMap::new());
-    map.insert('C', HashMap::new());
-    map.insert('D', HashMap::new());
-    map.insert('E', HashMap::new());
-    map.insert('F', HashMap::new());
-    map.insert('G', HashMap::new());
-    map.insert('H', HashMap::new());
-    map.insert('I', HashMap::new());
-    map.insert('J', HashMap::new());
-    map.insert('K', HashMap::new());
-    map.insert('L', HashMap::new());
-    map.insert('M', HashMap::new());
-    map.insert('N', HashMap::new());
-    map.insert('O', HashMap::new());
-    map.insert('P', HashMap::new());
-    map.insert('Q', HashMap::new());
-    map.insert('R', HashMap::new());
-    map.insert('S', HashMap::new());
-    map.insert('T', HashMap::new());
-    map.insert('U', HashMap::new());
-    map.insert('V', HashMap::new());
-    map.insert('W', HashMap::new());
-    map.insert('X', HashMap::new());
-    map.insert('Y', HashMap::new());
-    map.insert('Z', HashMap::new());
-    map.insert('0', HashMap::new());
-    map.insert('1', HashMap::new());
-    map.insert('2', HashMap::new());
-    map.insert('3', HashMap::new());
-    map.insert('4', HashMap::new());
-    map.insert('5', HashMap::new());
-    map.insert('6', HashMap::new());
-    map.insert('7', HashMap::new());
-    map.insert('8', HashMap::new());
-    map.insert('9', HashMap::new());
-    map.insert('.', HashMap::new());
-    map.insert('_', HashMap::new());
-    map.insert('-', HashMap::new());
-    map
+    "\\"
+//    return if cfg!(windows) { "\\" } else { "/" };
 }
