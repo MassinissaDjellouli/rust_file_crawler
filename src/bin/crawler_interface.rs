@@ -93,11 +93,25 @@ impl CrawlerInterface{
         }
         split.pop_front();
         let split = split.into_iter().collect::<Vec<&str>>().join(" ");
-        let found = self.crawler.find(split.as_str(),None,false);
-        format!("Found {} files with \"{}\" : \n\n {}",found.len(),split,found.join("\n"))
+        let found = self.crawler.find(split.clone(),None,false);
+        format!("Found {} files with \"{}\" : \n\n{}",found.len(),split,found.join("\n"))
     }
     fn handle_find_dir(&mut self, input: &str) -> String{
-        String::from("not impl")
+        let mut split = input.split(" ").collect::<VecDeque<&str>>();
+        if match split.get(0) {
+            Some(s) => s,
+            None => return String::from("Missing function.")
+        } != &"find_directory" {
+            return String::from("Invalid command.")
+        }
+
+        if split.len() < 2 {
+            return String::from("Missing arguments")
+        }
+        split.pop_front();
+        let split = split.into_iter().collect::<Vec<&str>>().join(" ");
+        let found = self.crawler.find_dir(split.clone(),None);
+        format!("Found {} directory with \"{}\" : \n\n{}",found.len(),split,found.join("\n"))
     }
     fn handle_find_in(&mut self, input: &str) -> String{
         String::from("not impl")
