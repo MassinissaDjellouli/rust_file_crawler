@@ -113,24 +113,29 @@ impl FileCrawler {
         }
         explored
     }
+
+    #[cfg(target_os= "windows")]
+    fn get_windows_roots() -> Vec<String>{
+        const WINDOWS_DRIVE_LETTERS:[&'static str;26] = ["A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z"];
+        let mut roots:Vec<String> = vec![];
+        unsafe {
+            let drives = windows::Win32::Storage::FileSystem::GetLogicalDrives();
+            let bits = unicode_segmentation::UnicodeSegmentation::graphemes(format!("{drives:b}").as_str(),true).rev().collect::<String>();
+            let mut idx = 0;
+            let mut chars = bits.chars();
+            while idx != bits.len() {
+                let bit = chars.next().unwrap();
+                if bit == '1' {
+                    roots.push(format!("{}:\\",WINDOWS_DRIVE_LETTERS[idx]).clone())
+                }
+                idx += 1;
+            }
+        }
+        roots
+    }
     fn get_roots() -> Vec<String> {
         if cfg!(windows){
-            const WINDOWS_DRIVE_LETTERS:[&'static str;26] = ["A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z"];
-            let mut roots:Vec<String> = vec![];
-            unsafe {
-                let drives = windows::Win32::Storage::FileSystem::GetLogicalDrives();
-                let bits = unicode_segmentation::UnicodeSegmentation::graphemes(format!("{drives:b}").as_str(),true).rev().collect::<String>();
-                let mut idx = 0;
-                let mut chars = bits.chars();
-                while idx != bits.len() {
-                    let bit = chars.next().unwrap();
-                    if bit == '1' {
-                        roots.push(format!("{}:\\",WINDOWS_DRIVE_LETTERS[idx]).clone())
-                    }
-                    idx += 1;
-                }
-            }
-            roots
+           Self::get_windows_roots()
         }else{
             vec![String::from("/")]
         }
