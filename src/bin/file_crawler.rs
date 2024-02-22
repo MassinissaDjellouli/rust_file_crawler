@@ -134,11 +134,10 @@ impl FileCrawler {
         roots
     }
     fn get_roots() -> Vec<String> {
-        if cfg!(windows){
-           Self::get_windows_roots()
-        }else{
-            vec![String::from("/")]
+        #[cfg(target_os= "windows")]{
+               return Self::get_windows_roots()
         }
+        return vec![String::from("/")]
     }
     fn edit_cache(
         cache: &mut HashMap<String, Arc<Mutex<Vec<String>>>>,
