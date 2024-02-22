@@ -144,11 +144,15 @@ impl FileCrawler {
             cache.entry(file_name).or_insert(Arc::new(Mutex::new(vec![])));
         paths.lock().unwrap().push(path);
     }
-    pub fn find(&self, file_name:String,root_folders:Option<Vec<String>>,full_search:bool) -> Vec<String>{
+    pub fn find(&self, file_name:String,root_folders:Option<Vec<String>>) -> Vec<String>{
         Self::find_in_cache(&self.file_cache,self.get_real_roots(root_folders),file_name)
     }
-    pub fn find_dir(&self, file_name:String,root_folders:Option<Vec<String>>) -> Vec<String>{
-        Self::find_in_cache(&self.folders_cache,self.get_real_roots(root_folders),file_name)
+
+    pub fn find_content(&self, content:String, root_folders:Option<Vec<String>>) -> Vec<String>{
+        vec![]
+    }
+    pub fn find_dir(&self, folder_name:String, root_folders:Option<Vec<String>>) -> Vec<String>{
+        Self::find_in_cache(&self.folders_cache, self.get_real_roots(root_folders), folder_name)
     }
 
     fn get_real_roots(&self,opt:Option<Vec<String>>) -> Vec<String>{

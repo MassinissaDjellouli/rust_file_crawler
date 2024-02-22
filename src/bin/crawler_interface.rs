@@ -93,7 +93,7 @@ impl CrawlerInterface{
         }
         split.pop_front();
         let split = split.into_iter().collect::<Vec<&str>>().join(" ");
-        let found = self.crawler.find(split.clone(),None,false);
+        let found = self.crawler.find(split.clone(),None);
         format!("Found {} files with \"{}\" : \n\n{}",found.len(),split,found.join("\n"))
     }
     fn handle_find_dir(&mut self, input: &str) -> String{
