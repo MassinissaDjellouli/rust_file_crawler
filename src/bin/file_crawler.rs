@@ -1,5 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::fmt::format;
+use std::fs;
 use std::path::Path;
 use std::process::exit;
 use std::slice::Windows;
@@ -17,18 +18,22 @@ pub struct FileCrawler {
     file_cache:  HashMap<String, Arc<Mutex<Vec<String>>>>,
     folders_cache: HashMap<String, Arc<Mutex<Vec<String>>>>,
     searchable_files_cache: HashMap<String, Arc<Mutex<Vec<String>>>>,
+    cached_file_content:HashMap<String,String>,
     sep: &'static str,
-    roots: Vec<String>
+    roots: Vec<String>,
+    read_content:bool
 }
 
 impl FileCrawler {
-    pub fn new() -> FileCrawler {
+    pub fn new(start_from:Option<&Path>,flags:i32) -> FileCrawler {
         FileCrawler {
             file_cache: HashMap::new(),
             folders_cache: HashMap::new(),
             searchable_files_cache: HashMap::new(),
+            cached_file_content: HashMap::new(),
             sep: get_sep(),
-            roots: Self::get_roots()
+            roots: Self::get_roots(start_from),
+            read_content:flags == 1
         }
     }
     pub fn start_indexing(&mut self){
@@ -37,6 +42,7 @@ impl FileCrawler {
         let mut to_explore_queue:VecDeque<String> = self.roots.clone().iter().map(|s|s.clone()).collect::<VecDeque<String>>();
         let threadpool:ThreadPool = ThreadPool::new(10);
         let (tx, rx): (Sender<Vec<ExploredObject>>, Receiver<Vec<ExploredObject>>) = mpsc::channel();
+        let mut to_read_list:VecDeque<String> = VecDeque::new();
         loop {
             println!("Starting indexing layer {}",layers_explored + 1);
             let expected_msg_length = to_explore_queue.len();
@@ -67,7 +73,10 @@ impl FileCrawler {
                             self.add_to_folders_cache(explored_obj.get_path());
                         },
                         ObjectType::File => {
-                            self.add_to_file_cache(explored_obj.get_path())
+                            self.add_to_file_cache(explored_obj.get_path());
+                            if self.read_content{
+                                to_read_list.push_back(explored_obj.get_path());
+                            }
                         },
                         _ => {}
                     }
@@ -82,7 +91,43 @@ impl FileCrawler {
             layers_explored += 1;
             println!("Finished indexing layer {}",layers_explored);
         }
+        if self.read_content{
+            self.read_file_content(to_read_list)
+        }
         println!("Finished indexing.");
+    }
+
+    fn read_file_content(&mut self,to_read_list:VecDeque<String>){
+        println!("Starting reading file content: {} files to read", to_read_list.len());
+        let threadpool:ThreadPool = ThreadPool::new(10);
+        let (tx, rx): (Sender<(String,String)>, Receiver<(String,String)>) = mpsc::channel();
+        let expected_msg_length = to_read_list.len();
+        for to_read in to_read_list{
+            let thr_sender = tx.clone();
+            threadpool.execute(move || {
+                match fs::read_to_string(to_read.clone()){
+                    Ok(content) => thr_sender.send((to_read,content)).expect("Should work"),
+                    _ => {}
+                }
+            })
+        }
+        let mut msg_rcvd = 0;
+        loop{
+            match rx.recv() {
+                Ok(rcv) => {
+                    msg_rcvd += 1;
+                    self.cached_file_content.insert(rcv.0,rcv.1)
+                },
+                Err(_) => {
+                    println!("ERRRRRRR");
+                    break
+                }
+            };
+
+            if msg_rcvd == expected_msg_length {
+                break
+            }
+        }
     }
     fn explore_dir(dir_to_explore:String) -> Vec<ExploredObject>{
         let path = Path::new(&dir_to_explore);
@@ -133,11 +178,16 @@ impl FileCrawler {
         }
         roots
     }
-    fn get_roots() -> Vec<String> {
-        #[cfg(target_os= "windows")]{
-               return Self::get_windows_roots()
+    fn get_roots(start_from:Option<&Path>) -> Vec<String> {
+        match start_from {
+            Some(start_from) => vec![start_from.to_str().unwrap().to_string()],
+            None => {
+                #[cfg(target_os = "windows")]{
+                    return Self::get_windows_roots()
+                }
+                vec![String::from("/")]
+            }
         }
-        return vec![String::from("/")]
     }
     fn edit_cache(
         cache: &mut HashMap<String, Arc<Mutex<Vec<String>>>>,
@@ -153,7 +203,17 @@ impl FileCrawler {
     }
 
     pub fn find_content(&self, content:String, root_folders:Option<Vec<String>>) -> Vec<String>{
-        vec![]
+        if !self.read_content{
+            println!("Lazy ass me dont wanna do that. Add -c to the args when launching");
+            return vec![];
+        };
+        let mut found = vec![];
+        for entry in self.cached_file_content.clone() {
+            if entry.1.contains(content.as_str()){
+                found.push(entry.0);
+            }
+        };
+        found
     }
     pub fn find_dir(&self, folder_name:String, root_folders:Option<Vec<String>>) -> Vec<String>{
         Self::find_in_cache(&self.folders_cache, self.get_real_roots(root_folders), folder_name)

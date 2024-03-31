@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 use std::io;
+use std::path::Path;
 use std::process::exit;
 
 use crate::bin::file_crawler::FileCrawler;
@@ -10,12 +11,13 @@ pub struct CrawlerInterface{
 }
 
 impl CrawlerInterface{
-    pub fn new() -> CrawlerInterface{
+    pub fn new(start_from: Option<&Path>,flags:i32) -> CrawlerInterface{
         CrawlerInterface{
-            crawler:FileCrawler::new(),
+            crawler:FileCrawler::new(start_from,flags),
             ready:false
         }
     }
+
     fn init(&mut self){
         let _ = &self.crawler.start_indexing();
         self.ready = true;
@@ -117,7 +119,21 @@ impl CrawlerInterface{
         String::from("not impl")
     }
     fn handle_find_content(&mut self, input: &str, full:bool) -> String{
-        String::from("not impl")
+        let mut split = input.split(" ").collect::<VecDeque<&str>>();
+        if match split.get(0) {
+            Some(s) => s,
+            None => return String::from("Missing function.")
+        } != &"find_content" {
+            return String::from("Invalid command.")
+        }
+
+        if split.len() < 2 {
+            return String::from("Missing arguments")
+        }
+        split.pop_front();
+        let input = split.into_iter().collect::<Vec<&str>>().join(" ");
+        let found = self.crawler.find_content(input.to_string(),None);
+        format!("Found {} files with \"{}\" : \n\n{}",found.len(),input,found.join("\n"))
     }
 
 }
