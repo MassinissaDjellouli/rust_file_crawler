@@ -218,6 +218,9 @@ impl FileCrawler {
     pub fn find_dir(&self, folder_name:String, root_folders:Option<Vec<String>>) -> Vec<String>{
         Self::find_in_cache(&self.folders_cache, self.get_real_roots(root_folders), folder_name)
     }
+    pub fn find_in(&self, folder_name:String, root_folders:Option<Vec<String>>) -> Vec<String>{
+        Self::find_in_cache(&self.folders_cache, self.get_real_roots(root_folders), folder_name)
+    }
 
     fn get_real_roots(&self,opt:Option<Vec<String>>) -> Vec<String>{
         match opt {

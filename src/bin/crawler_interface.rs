@@ -55,8 +55,8 @@ impl CrawlerInterface{
                     find_directory <TO_FIND>
                         Directory only search.
                     find_in [DIRECTORIES] <TO_FIND>
-                        Searches only in the directories given. Must be wraped in single quotes (') and separated by commas (,)
-                            example -> 'dir1,"dir 2",dir3'"#)
+                        Searches only in the directories given.
+"#)
             },
             "Q" | "q" => quit_id.to_string(),
             _ => self.default_handle(input.trim())
@@ -116,7 +116,30 @@ impl CrawlerInterface{
         format!("Found {} directory with \"{}\" : \n\n{}",found.len(),split,found.join("\n"))
     }
     fn handle_find_in(&mut self, input: &str) -> String{
-        String::from("not impl")
+        let mut split = input.split(" ").collect::<VecDeque<&str>>();
+        if match split.get(0) {
+            Some(s) => s,
+            None => return String::from("Missing function.")
+        } != &"find_in" {
+            return String::from("Invalid command.")
+        }
+
+        if split.len() < 3 {
+            return String::from("Missing arguments")
+        }
+        split.pop_front();
+        let to_find = match split.pop_back() {
+            Some(s) => s,
+            None => return String::from("Missing arguments.")
+        };
+        let to_find = to_find.to_string();
+        let mut v: Vec<_> = split.into();
+        v.sort();
+        v.dedup();
+        let split: VecDeque<_> = v.into();
+        let split:Vec<String> = split.into_iter().map(|s| s.to_string()).collect::<Vec<String>>().into();
+        let found = self.crawler.find(to_find.clone(),Some(split.clone()));
+        format!("Found {} files in '{}' with \"{}\" : \n\n{}",found.len(),split.join(", "),to_find,found.join("\n"))
     }
     fn handle_find_content(&mut self, input: &str, full:bool) -> String{
         let mut split = input.split(" ").collect::<VecDeque<&str>>();
